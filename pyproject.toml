@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "morph-converter"
+version = "0.1.0"
+description = "A dead-simple data format converter CLI. JSON ↔ CSV ↔ YAML."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+authors = [{name = "Morph Team"}]
+keywords = ["json", "csv", "yaml", "convert", "cli", "data"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "click>=8.0",
+    "rich>=13.0",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+morph = "morph.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/user/morph-converter"
+Repository = "https://github.com/user/morph-converter"
+Issues = "https://github.com/user/morph-converter/issues"
+
+[tool.setuptools.packages.find]
+include = ["morph*"]
