@@ -1,257 +1,151 @@
-"""Safe expression evaluator for morph filter commands.
-
-Uses Python's ast module to parse and evaluate filter expressions
-without ever calling eval(). Function calls are blocked at the AST level.
-Only whitelisted operators and syntax are allowed.
-
-Examples:
-    >>> evaluate("age > 18", {"age": 20})
-    True
-    >>> evaluate("status == 'active'", {"status": "inactive"})
-    False
-    >>> evaluate("user.age >= 21", {"user": {"age": 25}})
-    True
-    >>> evaluate("'admin' in roles", {"roles": ["user", "admin"]})
-    True
-"""
-
-import ast
-import operator
+"""Safe expression evaluator — AST-based, no eval(), no function calls."""
+import ast, operator
 from typing import Any
 
-
-# ---------------------------------------------------------------------------
-# Whitelisted operators — map AST node types to Python operators
-# ---------------------------------------------------------------------------
-
 _COMPARE_OPS = {
-    ast.Eq: operator.eq,
-    ast.NotEq: operator.ne,
-    ast.Lt: operator.lt,
-    ast.LtE: operator.le,
-    ast.Gt: operator.gt,
-    ast.GtE: operator.ge,
-    ast.In: lambda a, b: a in b,
-    ast.NotIn: lambda a, b: a not in b,
-    ast.Is: operator.is_,
-    ast.IsNot: operator.is_not,
+    ast.Eq: operator.eq, ast.NotEq: operator.ne,
+    ast.Lt: operator.lt, ast.LtE: operator.le,
+    ast.Gt: operator.gt, ast.GtE: operator.ge,
+    ast.In: lambda a, b: a in b, ast.NotIn: lambda a, b: a not in b,
+    ast.Is: operator.is_, ast.IsNot: operator.is_not,
 }
-
-_BOOL_OPS = {
-    ast.And: lambda a, b: a and b,
-    ast.Or: lambda a, b: a or b,
-}
-
 _BINARY_OPS = {
-    ast.Add: operator.add,
-    ast.Sub: operator.sub,
-    ast.Mult: operator.mul,
-    ast.Div: operator.truediv,
-    ast.FloorDiv: operator.floordiv,
-    ast.Mod: operator.mod,
+    ast.Add: operator.add, ast.Sub: operator.sub,
+    ast.Mult: operator.mul, ast.Div: operator.truediv,
+    ast.FloorDiv: operator.floordiv, ast.Mod: operator.mod,
     ast.Pow: operator.pow,
 }
-
 _UNARY_OPS = {
-    ast.UAdd: operator.pos,
-    ast.USub: operator.neg,
+    ast.UAdd: operator.pos, ast.USub: operator.neg,
     ast.Not: operator.not_,
 }
 
 
 class UnsafeExpression(ValueError):
-    """Raised when an expression contains operations not in the whitelist."""
+    """Expression uses syntax not in the whitelist."""
     pass
 
-
 class EvalError(ValueError):
-    """Raised when expression evaluation fails against the data."""
+    """Expression parsing or evaluation failure."""
     pass
 
 
 def _resolve_value(node: ast.AST, data: dict) -> Any:
-    """Recursively evaluate an AST node against a data dict.
-
-    This is the core of the safe evaluator. Only handles node types
-    that are explicitly whitelisted — anything else raises UnsafeExpression.
-    """
-    # --- Literals ---
+    """Recursively evaluate an AST node against a data dict."""
+    # Literals
     if isinstance(node, ast.Constant):
         return node.value
 
-    # --- Name lookup (top-level key) ---
+    # Name lookup
     if isinstance(node, ast.Name):
         return data.get(node.id)
 
-    # --- Dot-notation: user.age → data['user']['age'] ---
+    # Dot-notation: user.age
     if isinstance(node, ast.Attribute):
-        value = _resolve_value(node.value, data)
-        if isinstance(value, dict):
-            return value.get(node.attr)
-        # For non-dict values (e.g. strings have .endswith etc.), return None
-        # We don't allow attribute access on non-dicts since that's an attack surface
-        return None
+        v = _resolve_value(node.value, data)
+        return v.get(node.attr) if isinstance(v, dict) else None
 
-    # --- Subscript: user['age'], items[0] ---
+    # Subscript: user['age'], items[0]
     if isinstance(node, ast.Subscript):
-        value = _resolve_value(node.value, data)
-        key = _resolve_value(node.slice, data)
-        if isinstance(value, (dict, list, tuple)):
+        v = _resolve_value(node.value, data)
+        k = _resolve_value(node.slice, data)
+        if isinstance(v, (dict, list, tuple)):
             try:
-                return value[key]
+                return v[k]
             except (KeyError, IndexError, TypeError):
                 return None
         return None
 
-    # --- Slice: items[1:3] ---
+    # Slice: items[1:3]
     if isinstance(node, ast.Slice):
-        lower = _resolve_value(node.lower, data) if node.lower else None
-        upper = _resolve_value(node.upper, data) if node.upper else None
-        step = _resolve_value(node.step, data) if node.step else None
-        return slice(lower, upper, step)
+        return slice(
+            _resolve_value(node.lower, data) if node.lower else None,
+            _resolve_value(node.upper, data) if node.upper else None,
+            _resolve_value(node.step, data) if node.step else None,
+        )
 
-    # --- Unary operators: -x, not x ---
+    # Unary: -x, not x
     if isinstance(node, ast.UnaryOp):
-        operand = _resolve_value(node.operand, data)
-        op_func = _UNARY_OPS.get(type(node.op))
-        if op_func is None:
-            raise UnsafeExpression(
-                f"Unsupported unary operator: {type(node.op).__name__}"
-            )
-        return op_func(operand)
+        op = _UNARY_OPS.get(type(node.op))
+        if op is None:
+            raise UnsafeExpression(f"Unsupported unary operator: {type(node.op).__name__}")
+        return op(_resolve_value(node.operand, data))
 
-    # --- Comparison: a == b, a > b, a in b, etc. ---
+    # Comparison: a == b, a > b, a in b, etc.
     if isinstance(node, ast.Compare):
         left = _resolve_value(node.left, data)
         for op_node, comparator in zip(node.ops, node.comparators):
             right = _resolve_value(comparator, data)
-            op_func = _COMPARE_OPS.get(type(op_node))
-            if op_func is None:
-                raise UnsafeExpression(
-                    f"Unsupported comparison operator: {type(op_node).__name__}"
-                )
-            # Handle missing fields gracefully — None can't compare with int/str
+            op = _COMPARE_OPS.get(type(op_node))
+            if op is None:
+                raise UnsafeExpression(f"Unsupported comparison operator: {type(op_node).__name__}")
             try:
-                if not op_func(left, right):
+                if not op(left, right):
                     return False
             except TypeError:
-                # e.g. None > 18 → return False
                 return False
             left = right
         return True
 
-    # --- Boolean operators: and / or ---
+    # Boolean: and / or (short-circuit)
     if isinstance(node, ast.BoolOp):
-        # Short-circuit: evaluate one at a time
-        values = (_resolve_value(v, data) for v in node.values)
-        op_type = type(node.op)
-        if op_type == ast.Or:
-            for v in values:
-                if v:
-                    return True
-            return False
-        elif op_type == ast.And:
-            for v in values:
-                if not v:
-                    return False
-            return True
-        else:
-            raise UnsafeExpression(
-                f"Unsupported boolean operator: {op_type.__name__}"
-            )
+        vals = (_resolve_value(v, data) for v in node.values)
+        if isinstance(node.op, ast.Or):
+            return any(vals)  # short-circuits via generator
+        if isinstance(node.op, ast.And):
+            return all(vals)  # short-circuits via generator
+        raise UnsafeExpression(f"Unsupported boolean operator: {type(node.op).__name__}")
 
-    # --- Binary operators: +, -, *, /, etc. ---
+    # Binary: +, -, *, /, etc.
     if isinstance(node, ast.BinOp):
-        left = _resolve_value(node.left, data)
-        right = _resolve_value(node.right, data)
-        op_func = _BINARY_OPS.get(type(node.op))
-        if op_func is None:
-            raise UnsafeExpression(
-                f"Unsupported binary operator: {type(node.op).__name__}"
-            )
-        return op_func(left, right)
+        op = _BINARY_OPS.get(type(node.op))
+        if op is None:
+            raise UnsafeExpression(f"Unsupported binary operator: {type(node.op).__name__}")
+        return op(_resolve_value(node.left, data), _resolve_value(node.right, data))
 
-    # --- Lists and tuples ---
+    # Lists and tuples
     if isinstance(node, ast.List):
         return [_resolve_value(el, data) for el in node.elts]
-
     if isinstance(node, ast.Tuple):
         return tuple(_resolve_value(el, data) for el in node.elts)
 
-    # --- Expression wrapper ---
+    # Expression wrapper
     if isinstance(node, ast.Expression):
         return _resolve_value(node.body, data)
 
-    # If we got here, it's an unsupported node type
+    # Blocked constructs — caught here instead of a separate AST walk
+    if isinstance(node, ast.Call):
+        raise UnsafeExpression(
+            f"Function calls are not allowed in filter expressions "
+            f"(found: {ast.dump(node)})"
+        )
+    if isinstance(node, (ast.Lambda, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+        raise UnsafeExpression(
+            f"{type(node).__name__} expressions are not allowed in filter expressions"
+        )
+
     raise UnsafeExpression(
-        f"Unsupported syntax: {type(node).__name__} "
-        f"(in expression: {ast.dump(node)})"
+        f"Unsupported syntax: {type(node).__name__} (in expression: {ast.dump(node)})"
     )
 
 
 def evaluate(expression: str, data: dict) -> bool:
-    """Evaluate a filter expression against a single data record.
-
-    Args:
-        expression: Filter expression (e.g. "age > 18", "status == 'active'").
-        data: Single record as a dict.
-
-    Returns:
-        True if the record matches the filter.
-
-    Raises:
-        UnsafeExpression: If the expression uses unsupported syntax.
-        EvalError: If the expression is syntactically invalid.
-    """
-    # Parse the expression into an AST
+    """Evaluate a filter expression against a data record."""
     try:
         tree = ast.parse(expression.strip(), mode="eval")
     except SyntaxError as e:
         raise EvalError(f"Invalid expression: {e}") from e
 
-    # Security check: walk the entire AST and reject any function calls
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call):
-            raise UnsafeExpression(
-                "Function calls are not allowed in filter expressions "
-                f"(found: {ast.dump(node)})"
-            )
-        # Also block comprehensions and lambda (they're basically function calls)
-        if isinstance(node, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
-            raise UnsafeExpression(
-                f"Comprehensions are not allowed in filter expressions "
-                f"(found: {type(node).__name__})"
-            )
-        if isinstance(node, ast.Lambda):
-            raise UnsafeExpression(
-                "Lambda expressions are not allowed in filter expressions"
-            )
-
-    # Evaluate
     try:
-        result = _resolve_value(tree, data)
+        return bool(_resolve_value(tree, data))
     except UnsafeExpression:
         raise
     except Exception as e:
         raise EvalError(f"Error evaluating expression: {e}") from e
 
-    return bool(result)
-
 
 def filter_records(records: list[dict], expression: str) -> list[dict]:
-    """Filter a list of records using an expression.
-
-    Args:
-        records: List of data records (dicts).
-        expression: Filter expression string.
-
-    Returns:
-        Filtered list of records.
-
-    Raises:
-        UnsafeExpression: If the expression uses unsupported syntax.
-        EvalError: If the expression is invalid.
-    """
+    """Filter a list of records using an expression. Skips errored records."""
     if not records:
         return []
     result = []
@@ -260,6 +154,5 @@ def filter_records(records: list[dict], expression: str) -> list[dict]:
             if evaluate(expression, record):
                 result.append(record)
         except (EvalError, UnsafeExpression, Exception):
-            # If evaluation fails for this record, skip it
             continue
     return result
