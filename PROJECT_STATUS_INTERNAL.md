@@ -1,7 +1,8 @@
-# PROJECT_STATUS.md — morph-cli 项目状态报告
+# PROJECT_STATUS.md — morph-cli 项目状态报告（内部完整版）
 
 > 更新时间：2026-06-14  
 > 版本：v0.1.0 (MVP)
+> ⚠️ 内部文件，不推送到 GitHub
 
 ---
 
@@ -128,6 +129,7 @@ morph/
 |------|------|------|
 | 产品方向 | 数据格式转换，不做图片 | 2026-06-11 |
 | 产品形态 | 独立 CLI 工具，做精做深 | 2026-06-11 |
+| 商业模式 | CLI 免费获客 → 桌面版 Pro 收费 | 2026-06-11 |
 | 包名 | `morph-cli`，命令 `morph` | 2026-06-11 |
 | V1 范围 | 只做 `convert` → 扩展为 filter/select/head/sample | 2026-06-14 |
 | 技术栈 | Python + Click + Rich（不用 Rust/Tauri） | 2026-06-11 |
@@ -135,3 +137,33 @@ morph/
 | 安全过滤方案 | `ast` 白名单，不 eval | 2026-06-14 |
 | 不造 DSL | 子命令 + 参数，不发明新语言 | 2026-06-14 |
 | 不造 AI 子命令 | 保持确定性工具纯粹性 | 2026-06-14 |
+| 验证路径 | 先发社区论坛，再决定是否商业化 | 2026-06-11 |
+
+---
+
+## 七、商业策略（⛔ 内部机密，不公开）
+
+### 货币化计划
+| 项目 | 详情 |
+|------|------|
+| 平台 | Gumroad |
+| 定价 | $3.99 买断 + 终身更新 |
+| 模式 | CLI 免费开源 → 桌面版 Pro 收费 |
+| 桌面版 Pro | 可视化编辑、批量管道处理 |
+| 域名 | flux.sh / fluxcli.dev（可选） |
+| 落地页 | GitHub Pages |
+
+### 触发条件
+- ≥ 3 人主动问"怎么付钱"或"I'd pay for this"
+- 社区帖子获得 100+ upvotes 且评论区积极
+- 否则：分析原因，调整方向
+
+### 社区发布策略
+- r/Python：周二-周四，美东时间 9-11 AM
+- r/commandline：同上
+- Hacker News Show HN：标题格式 "Show HN: Flux — a dead-simple data format converter CLI"
+- 发帖后 2-4 小时内积极互动，回复每一条评论
+
+### 凭证管理
+- PyPI token、GitHub token、Gumroad API key 等严格本地保管
+- 绝不提交到代码仓库
