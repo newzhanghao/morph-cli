@@ -28,3 +28,6 @@ htmlcov/
 
 # Morph
 *.log
+
+# Internal confidential files
+PROJECT_STATUS_INTERNAL.md
